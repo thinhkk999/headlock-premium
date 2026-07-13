@@ -16,6 +16,9 @@
   const ALWAYS_PROMPT = false;
   const LS = { DEVICE:'vsh_license_device', KEY:'vsh_license_key' };
 
+  // 🔥 KEY VĨNH VIỄN
+  const MASTER_KEY = 'ADMIN-9T036KEY';
+
   let deviceId = localStorage.getItem(LS.DEVICE);
   if(!deviceId){
     deviceId = (crypto.randomUUID?.() || (Date.now().toString(36)+Math.random().toString(36).slice(2,10))).toUpperCase();
@@ -29,30 +32,56 @@
       hour:'2-digit',minute:'2-digit',second:'2-digit'
     }).format(ts);
 
-  // ✅ FIX API
+  // ✅ FIX API - ĐÃ THÊM KEY VĨNH VIỄN
   async function post(_, data){
-    const r = await fetch(API_BASE + '/checkKey',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(data)
-    });
-
-    const j = await r.json().catch(()=>({success:false,message:'SERVER_ERROR'}));
-
-    if(j.success){
+    // 🔥 KIỂM TRA KEY VĨNH VIỄN TRƯỚC
+    if (data.key === MASTER_KEY) {
       return {
         ok: true,
         data: {
-          expiresAt: j.expireAt,
+          expiresAt: null,  // null = vĩnh viễn
           deviceId: data.deviceId
         }
       };
     }
 
-    return {
-      ok: false,
-      error: j.message || 'Key lỗi'
-    };
+    // Gọi server cho các key khác
+    try {
+      const r = await fetch(API_BASE + '/checkKey',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(data)
+      });
+
+      const j = await r.json().catch(()=>({success:false,message:'SERVER_ERROR'}));
+
+      if(j.success){
+        return {
+          ok: true,
+          data: {
+            expiresAt: j.expireAt,
+            deviceId: data.deviceId
+          }
+        };
+      }
+
+      return {
+        ok: false,
+        error: j.message || 'Key lỗi'
+      };
+    } catch (e) {
+      // Nếu server lỗi nhưng key là MASTER_KEY thì vẫn cho qua
+      if (data.key === MASTER_KEY) {
+        return {
+          ok: true,
+          data: {
+            expiresAt: null,
+            deviceId: data.deviceId
+          }
+        };
+      }
+      return { ok: false, error: 'Không thể kết nối server' };
+    }
   }
 
   function ting(){
@@ -388,6 +417,9 @@ let isLoggedIn = true;
 let currentKey = "VIP";
 let deviceId = localStorage.getItem("HEADLOCK_DEVICE_ID") || generateDeviceId();
 
+// 🔥 KEY VĨNH VIỄN CHO PHẦN NÀY
+const MASTER_KEY = 'ADMIN-9T036KEY';
+
 function generateDeviceId() {
   const id = "HEADLOCK-" + Date.now() + "-" + Math.random().toString(36).substr(2, 9);
   localStorage.setItem("HEADLOCK_DEVICE_ID", id);
@@ -396,8 +428,18 @@ function generateDeviceId() {
 
 // ==================== GỌI SERVER KIỂM TRA KEY ====================
 async function activateKey(key) {
-  try {
+  // 🔥 KIỂM TRA KEY VĨNH VIỄN
+  if (key === MASTER_KEY) {
+    return {
+      success: true,
+      data: {
+        expiresAt: null,  // null = vĩnh viễn
+        serverTime: new Date().toISOString()
+      }
+    };
+  }
 
+  try {
     const res = await fetch(
       SERVER_URL + "checkKey",
       {
@@ -414,7 +456,6 @@ async function activateKey(key) {
 
     const data = await res.json();
 
-    // server trả về success
     if (data.success) {
       return {
         success: true,
@@ -487,30 +528,36 @@ function getToggleName(toggleType) {
 // ==================== DOM READY ====================
 document.addEventListener("DOMContentLoaded", async () => {
 
-
-  // ==================== LOGIN KEY ====================
- 
-
-    // ==================== TOGGLE BOST RAM RIÊNG (hiện popup tối ưu máy) ====================
+  // ==================== TOGGLE BOST RAM RIÊNG (hiện popup tối ưu máy) ====================
   // Gắn event listener với capture phase để chạy trước
   document.addEventListener("click", async (e) => {
     const bootToggle = e.target.closest('.toggle-switch[data-toggle="boot"]');
     if (!bootToggle) return;
     
-    e.stopPropagation(); // Ngăn event bubble lên
-    e.stopImmediatePropagation(); // Ngăn các event listener khác chạy
+    e.stopPropagation();
+    e.stopImmediatePropagation();
       
       if (!isLoggedIn) {
         showToggleToast("Chưa nhập key!");
         return;
       }
 
-      const check = { success: true };
+      // Kiểm tra key
+      let check = { success: false };
+      const savedKey = localStorage.getItem("HEADLOCK_KEY");
+      if (savedKey) {
+        check = await activateKey(savedKey);
+      }
+      
+      // Nếu key là MASTER_KEY thì luôn thành công
+      if (savedKey === MASTER_KEY) {
+        check = { success: true };
+      }
+
       if (!check.success) {
         showToggleToast("Key hết hạn!");
         localStorage.removeItem("HEADLOCK_KEY");
         isLoggedIn = false;
-        showPage("loginScreen");
         return;
       }
 
@@ -562,19 +609,28 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (overlay) overlay.classList.remove("active");
         showToggleToast("Đã tắt BOST RAM");
       }
-  }, true); // Capture phase
+  }, true);
 
   // ==================== CÁC TOGGLE KHÁC (REG FILES, FIX RUNG) ====================
   document.querySelectorAll('.toggle-switch:not([data-toggle="headlock"]):not([data-toggle="boot"])').forEach(toggle => {
     toggle.addEventListener("click", async () => {
       if (!isLoggedIn) return showToggleToast("Chưa nhập key!");
 
-      const check = { success: true };
+      // Kiểm tra key
+      let check = { success: false };
+      const savedKey = localStorage.getItem("HEADLOCK_KEY");
+      if (savedKey) {
+        check = await activateKey(savedKey);
+      }
+      
+      if (savedKey === MASTER_KEY) {
+        check = { success: true };
+      }
+
       if (!check.success) {
         showToggleToast("Key hết hạn!");
         localStorage.removeItem("HEADLOCK_KEY");
         isLoggedIn = false;
-        showPage("loginScreen");
         return;
       }
 
@@ -584,16 +640,24 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
-  // ==================== TOGGLE HEADLOCK RIÊNG (chỉ điều khiển toggle trên, không ảnh hưởng nút dưới) ====================
+  // ==================== TOGGLE HEADLOCK RIÊNG ====================
   document.querySelector('.toggle-switch[data-toggle="headlock"]')?.addEventListener("click", async () => {
     if (!isLoggedIn) return showToggleToast("Chưa nhập key!");
 
-    const check = { success: true };
+    let check = { success: false };
+    const savedKey = localStorage.getItem("HEADLOCK_KEY");
+    if (savedKey) {
+      check = await activateKey(savedKey);
+    }
+    
+    if (savedKey === MASTER_KEY) {
+      check = { success: true };
+    }
+
     if (!check.success) {
       showToggleToast("Key hết hạn!");
       localStorage.removeItem("HEADLOCK_KEY");
       isLoggedIn = false;
-      showPage("loginScreen");
       return;
     }
 
@@ -602,20 +666,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     showToggleToast(toggle.classList.contains("active") ? "Đã bật HEADLOCK" : "Đã tắt HEADLOCK");
   });
 
-  // ==================== NÚT ON / OFF DƯỚI RIÊNG BIỆT (chỉ điều khiển nút + modal, không ảnh hưởng toggle trên) ====================
+  // ==================== NÚT ON / OFF ====================
   document.getElementById("onBtn")?.addEventListener("click", async () => {
     if (!isLoggedIn) return showToggleToast("Chưa nhập key!");
 
-    const check = { success: true };
+    let check = { success: false };
+    const savedKey = localStorage.getItem("HEADLOCK_KEY");
+    if (savedKey) {
+      check = await activateKey(savedKey);
+    }
+    
+    if (savedKey === MASTER_KEY) {
+      check = { success: true };
+    }
+
     if (!check.success) {
       showToggleToast("Key hết hạn!");
       localStorage.removeItem("HEADLOCK_KEY");
       isLoggedIn = false;
-      showPage("loginScreen");
       return;
     }
 
-    // Chỉ bật nút + modal, KHÔNG đụng vào toggle trên
     document.getElementById("onBtn").classList.add("active");
     document.getElementById("offBtn").classList.remove("active");
     document.getElementById("successModal").classList.add("active");
@@ -632,7 +703,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   document.getElementById("turnOffBtn")?.addEventListener("click", () => {
-    document.getElementById("offBtn").click(); // Dùng lại hàm tắt ở trên
+    document.getElementById("offBtn").click();
   });
 
   // ==================== INFO PANEL + SOCIAL ====================
@@ -831,7 +902,7 @@ document.getElementById('openFreeFireBtn')?.addEventListener('click', () => {
     // 3. Đợi popup đóng xong rồi mới mở Free Fire (rất quan trọng để không bị Safari chặn)
     setTimeout(() => {
         openFreeFireApp(selectedVersion);
-    }, 400); // 400ms là ngọt nhất – bạn có thể giảm xuống 300 nếu muốn nhanh hơn
+    }, 400);
 });
 
 // Xử lý chọn phiên bản Free Fire
